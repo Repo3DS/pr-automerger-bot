@@ -1,0 +1,7 @@
+# Port for the service to run on
+PORT = 10293
+# The Github secret key (currently not used, this can be blank)
+SECRET = "Kr8b3R1YzvGYyUvHA3T4jU"
+# Github credentials for the robot to use when merging/commenting
+GHUSER = "ss23robot"
+GHPASS = "9KB1jrEAj7AyEtkTBrH7HdB2tV"

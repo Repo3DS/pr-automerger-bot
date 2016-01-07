@@ -46,10 +46,12 @@ def do_magic_stuff(magic_json):
 	# TODO Verify whether we've commented on this repo before
 	# For now, the lazy way is kind of "is this merged?"
 	if pull.merged:
+		print("Not merging -- it's already been merged")
 		return False
 	
 	# Another sanity check is whether it's mergable in the first place
 	if not pull.mergeable:
+		print("Not merging -- not mergeable")
 		return False
 
 	""" verify the validity of each commit """

@@ -32,11 +32,7 @@ def do_verify_commit(commit, permissions):
 				with open(tmpfile) as f:
 					config = yaml.load(f)
 					app = brewman.BrewConfig(config)
-					errors = app.validate()
-					if not errors:
-						print("Validated successfully")
-					else:
-						errorlist += errors
+					errorlist += app.validate()
 			except yaml.YAMLError as e:
 				errorlist += ["Error parsing configuration file."]
 		
@@ -54,7 +50,7 @@ def do_verify_commit(commit, permissions):
 					if width != 48 or height != 48:
 						errorlist += ["[icon.png]({}) dimensions are {}x{} instead of the required 48x48".format(ghfile.blob_url, width, height)]
 		
-		# Must be checked last
+		# If you have permission to the directory, but not file
 		elif passed:
 			errorlist += ["You do not have permission to edit file [{}]({})".format(ghfile.filename, ghfile.blob_url)]
 
@@ -89,7 +85,7 @@ def do_magic_stuff(magic_json):
 	# Check the PR again to make sure nothing changed while it was being verified
 	pull = repo.get_pull(magic_json['number'])
 	if pull.commits > 1 or commit.sha != pull.get_commits()[0].sha:
-		do_magic_stuff(magic_json)
+		print("PR has changed, not merging")
 		return False
 
 	# If errors are returned, make an issue comment about all of them

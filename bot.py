@@ -4,18 +4,22 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from github import Github
 from os import path
-import urllib.request, socketserver, base64, json, yaml, struct, imghdr
+from PIL import Image
+import urllib.request, socketserver, base64, json, yaml
 import settings, brewman
 
 
 def do_verify_commit(commit, permissions):
 	errorlist = []
+	configs_checked = 0
+	is_org_member = any(org.login != "Repo3ds" for org in commit.committer.get_orgs())
 
 	for ghfile in commit.files:
 		ghdir = path.dirname(ghfile.filename)
 		ghbase = path.basename(ghfile.filename)
 
-		passed = False
+		# Members of the Repo3ds org have permission to modify everything
+		passed = is_org_member
 		for pathname, users in permissions.items():
 			# Because trailing slash is optional in permissions file
 			if ghdir == path.dirname(pathname+'/'):
@@ -23,40 +27,37 @@ def do_verify_commit(commit, permissions):
 					passed = True
 					break
 		if not passed:
-			errorlist += ["You do not have permission to edit file [{}]({})".format(ghfile.filename, ghfile.blob_url)]
+			errorlist += ["[{}]({}) does not have permission to edit file [{}]({})".format(commit.committer.login, commit.committer.html_url, ghfile.filename, ghfile.blob_url)]
 
 		# Validate the config file that was changed
 		if ghbase == "config.yml":
-			tmpfile, headers = urllib.request.urlretrieve(ghfile.raw_url)
-			try:
-				with open(tmpfile) as f:
-					config = yaml.load(f)
-					app = brewman.BrewConfig(config)
-					errors = app.validate()
-					if not errors:
-						print("Validated successfully")
-					else:
-						errorlist += errors
-			except yaml.YAMLError as e:
-				errorlist += ["Error parsing configuration file."]
+			# Don't check more than one config that they don't have permission to edit
+			if configs_checked < 1 or passed:
+				configs_checked += 1
+				tmpfile, headers = urllib.request.urlretrieve(ghfile.raw_url)
+				try:
+					with open(tmpfile) as f:
+						config = yaml.load(f)
+						app = brewman.BrewConfig(config, path.basename(ghdir))
+						errorlist += app.validate()
+				except yaml.YAMLError as e:
+					errorlist += ["Error parsing configuration file."]
 		
 		# Make sure icon.png is a valid 48x48 PNG file
 		elif ghbase == "icon.png":
 			tmpfile, headers = urllib.request.urlretrieve(ghfile.raw_url)
-			with open(tmpfile, 'rb') as f:
-				head = f.read(24)
-				if len(head) == 24:
-					check = struct.unpack('>i', head[4:8])[0]
-				if len(head) != 24 or imghdr.what(tmpfile) != 'png' or check != 0x0d0a1a0a:
-					errorlist += ["Icon file is not a valid PNG file."]
-				else:
-					width, height = struct.unpack('>ii', head[16:24])
-					if width != 48 or height != 48:
-						errorlist += ["[icon.png]({}) dimensions are {}x{} instead of the required 48x48".format(ghfile.blob_url, width, height)]
-		
-		# Must be checked last
-		elif passed:
-			errorlist += ["You do not have permission to edit file [{}]({})".format(ghfile.filename, ghfile.blob_url)]
+			try:
+				icon = Image.open(tmpfile)
+				if icon.format != 'PNG':
+					errorlist += ["[icon.png]({}) is not a valid PNG.".format(ghfile.blob_url)]
+				if icon.size != (48, 48):
+					errorlist += ["[icon.png]({}) dimensions need to be 48x48".format(ghfile.blob_url)]
+			except Exception:
+				errorlist += ["[icon.png]({}) is not a valid image.".format(ghfile.blob_url)]
+
+		# If you have permission to the directory, but not file
+		elif passed and not is_org_member:
+			errorlist += ["[{}]({}) does not have permission to edit file [{}]({})".format(commit.committer.login, commit.committer.html_url, ghfile.filename, ghfile.blob_url)]
 
 	return errorlist
 				
@@ -89,7 +90,7 @@ def do_magic_stuff(magic_json):
 	# Check the PR again to make sure nothing changed while it was being verified
 	pull = repo.get_pull(magic_json['number'])
 	if pull.commits > 1 or commit.sha != pull.get_commits()[0].sha:
-		do_magic_stuff(magic_json)
+		print("PR has changed, not merging")
 		return False
 
 	# If errors are returned, make an issue comment about all of them
